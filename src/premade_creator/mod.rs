@@ -206,6 +206,7 @@ fn process_end() {
         
         s.channel_id.send_message(|m| {
             m.embed(|_| embed)
+                .content("@everyone")
         }).expect("the message couldn't be sent");
 
     }
