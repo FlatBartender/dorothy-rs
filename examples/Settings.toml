@@ -1,3 +1,4 @@
+# @TODO Insert your token here
 token = "<insert your bot token here>"
 
 [premade-creator]
@@ -10,5 +11,8 @@ games = [
     ["rocket league", "🏎", "3"],
 ]
 
+# @TODO Add your server id, the channel id you want to send the message in, and then the 
+# roles you want to @ (optional, don't use over 2000 characters or the message won't be
+# sent.)
 [premade-creator.servers]
-"server id" = channel id
+"server id" = [channel id, ...role ids]

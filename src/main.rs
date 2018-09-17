@@ -13,6 +13,7 @@ use std::sync::RwLock;
 pub mod dorothy;
 pub mod utils;
 pub mod premade_creator;
+pub mod misc;
 
 lazy_static! {
     static ref SETTINGS: Arc<RwLock<config::Config>> = {
@@ -52,6 +53,7 @@ fn main() {
     // Register modules here. Simply put the result of their init function in the modules array. 
     
     modules.push(&premade_creator::register);
+    modules.push(&misc::register);
     
     for register in modules.iter_mut() {
         framework = register(framework);
