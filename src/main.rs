@@ -14,24 +14,21 @@ pub mod dorothy;
 pub mod utils;
 pub mod premade_creator;
 
-static mut SETTINGS: Option<Arc<RwLock<config::Config>>> = None;
-
-/// Helper function for getting the settings more easily.
-fn get_settings() -> Arc<RwLock<config::Config>> {
-    unsafe {
-        SETTINGS.clone().expect("couldn't get settings")
-    }
+lazy_static! {
+    static ref SETTINGS: Arc<RwLock<config::Config>> = {
+        Arc::new(RwLock::new(config::Config::default()))
+    };
 }
+fn get_settings() -> Arc<RwLock<config::Config>> {
+    SETTINGS.clone()
+}
+
 
 fn init_env() {
     pretty_env_logger::init();    
-    
-    let mut settings = config::Config::default();
+    let settings = get_settings();
+    let mut settings = settings.write().expect("couldn't lock the settings for writing");
     settings.merge(config::File::with_name("Settings")).expect("couldn't find the Settings file");
-
-    unsafe {
-        SETTINGS = Some(Arc::new(RwLock::new(settings)));
-    }
 }
 
 fn main() {
