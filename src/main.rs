@@ -4,6 +4,8 @@ extern crate pretty_env_logger;
 extern crate serenity;
 extern crate config;
 extern crate job_scheduler;
+#[macro_use]
+extern crate lazy_static;
 
 use std::sync::Arc;
 use std::sync::RwLock;

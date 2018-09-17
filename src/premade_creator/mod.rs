@@ -26,42 +26,38 @@ use serenity::builder::*;
 use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
 
 use get_settings;
 use utils::*;
 
-static mut STATE: Option<Arc<RwLock<PremadeCreator>>> = None;
+type StateType = HashMap<ChannelId, MessageId>;
 
-#[doc(hidden)]
-fn get_state() -> Arc<RwLock<PremadeCreator>> {
-    unsafe {
-        STATE.clone().expect("couldn't get state")
-    }
+lazy_static! {
+    static ref STATE: Arc<RwLock<StateType>> = {
+        Arc::new(RwLock::new(StateType::new()))
+    };
 }
 
-pub fn register(framework: StandardFramework) -> StandardFramework {
-    let (start_time, end_time, games, servers) = {
-        let settings = get_settings();
-        let settings = settings.read().expect("couldn't read settings");
+fn get_games() -> Vec<GameInfo> {
+    let settings = get_settings();
+    let settings = settings.read().expect("couldn't acquire read lock on settings");
 
-        let start = settings.get_str("premade-creator.start").expect("couldn't get cron line for start event");
-        let end   = settings.get_str("premade-creator.end").expect("couldn't get cron line for end event");
+    let games = settings.get_array("premade-creator.games").expect("couldn't get games");
 
-        let games = settings.get_array("premade-creator.games").expect("couldn't get games");
+    games.into_iter().map(|v| {
+        let v = v.into_array().expect("value isn't an array");
+        let name = v[0].clone().into_str().expect("couldn't parse name");
 
-        let games = games.into_iter().map(|v| {
-            let v = v.into_array().expect("value isn't an array");
-            let name = v[0].clone().into_str().expect("couldn't parse name");
-
-            // @TODO Get infos on how ser/de is done. We might avoid this little hell.
-            let emoji = match v[1].clone().into_str() {
-                // Emoji is a unicode emoji
-                Ok(s) => ReactionType::Unicode(s.to_string()),
-                // Emoji is either unparseable or a custom emoji
-                Err(_) => {
-                    panic!("Can't use custom emojis yet");
-                }
-            };
+        // @TODO Get infos on how ser/de is done. We might avoid this little hell.
+        let emoji = match v[1].clone().into_str() {
+            // Emoji is a unicode emoji
+            Ok(s) => ReactionType::Unicode(s.to_string()),
+            // Emoji is either unparseable or a custom emoji
+            Err(_) => {
+                panic!("Can't use custom emojis yet");
+            }
+        };
 
             let team_size: u32 = v[2].clone().into_str().expect("couldn't deserialize team size").parse().expect("couldn't parse team size");
 
@@ -70,32 +66,37 @@ pub fn register(framework: StandardFramework) -> StandardFramework {
                 emoji,
                 team_size,
             }
-        }).collect();
- 
-        let servers = settings.get_table("premade-creator.servers").expect("couldn't get servers");
-        let servers = servers.into_iter().map(|(server, channel)| {
-            let server_id = GuildId(server.parse().expect("couldn't parse server string"));
-            let channel_id = ChannelId(channel.try_into().expect("couldn't deserialize channel"));
+    }).collect()
+}
 
-            Server {
-                server_id,
-                channel_id,
-                message: None,
-            }
-        }).collect();
+fn get_servers() -> Vec<Server> {
+    let settings = get_settings();
+    let settings = settings.read().expect("couldn't acquire read lock on settings");
+    
+    let servers = settings.get_table("premade-creator.servers").expect("couldn't get servers");
+    servers.into_iter().map(|(server, channel)| {
+        let server_id = GuildId(server.parse().expect("couldn't parse server string"));
+        let channel_id = ChannelId(channel.try_into().expect("couldn't deserialize channel"));
 
-        (start, end, games, servers)
-    };
+        Server {
+            server_id,
+            channel_id,
+            message: None,
+        }
+    }).collect()
+}
 
-    let state = PremadeCreator {
-        games,
-        servers,
+pub fn register(framework: StandardFramework) -> StandardFramework {
+    let (start_time, end_time) = {
+        let settings = get_settings();
+        let settings = settings.read().expect("couldn't acquire read lock on settings");
+
+        let start = settings.get_str("premade-creator.start").expect("couldn't get cron line for start event");
+        let end   = settings.get_str("premade-creator.end").expect("couldn't get cron line for end event");
+
+        (start, end)
     };
     
-    unsafe {
-        STATE = Some(Arc::new(RwLock::new(state)));
-    }
-
     thread::spawn(move || {
         let mut sched = JobScheduler::new();
         sched.add(Job::new(start_time.parse().expect("bad start syntax"), &process_start));
@@ -118,19 +119,16 @@ pub fn register(framework: StandardFramework) -> StandardFramework {
 fn process_start() {
     info!("Starting the premade creation process...");
 
-    let state = get_state();
-    let mut state = state.write().expect("couldn't lock state");
-    
     // Yeah I realize I could use the r#""# notation but this is way more readable imo.
     let embed_description = vec![
         "Today, these following games are available!".to_string(),
         "React with the corresponding emoji to participate!\n".to_string(),
     ].join("\n");
 
-
-    let mut reactions   = Vec::with_capacity(state.games.len());
-    let mut embed_games = Vec::with_capacity(state.games.len());
-    for g in state.games.iter() {
+    let games = get_games();
+    let mut reactions   = Vec::with_capacity(games.len());
+    let mut embed_games = Vec::with_capacity(games.len());
+    for g in games.iter() {
         reactions.push(g.emoji.clone());
         embed_games.push(format!("{} -> `{}`", g.emoji, g.name));
     }
@@ -153,14 +151,16 @@ fn process_start() {
     let message = message.embed(|_| embed)
         .content("@everyone")
         .reactions(reactions.into_iter());
+    
+    let servers = get_servers();
 
-    for s in state.servers.iter_mut() {
-        // @TODO fix the @@everyone problem
-        let result = s.channel_id.send_message(|_| message.clone());
-        match result {
-            // Message successfully sent, keeping the ID in memory
+    let state = STATE.clone();
+    let mut state = state.write().expect("couldn't lock state");
+    for s in servers.iter() {
+        match s.channel_id.send_message(|_| message.clone()) {
+            // Message successfully sent, keep the ID in memory
             Ok(msg) => {
-                s.message = Some(msg.id);
+                state.insert(s.channel_id, msg.id);
             },
             // Message wasn't sent correctly. Forwarding error to user.
             Err(e) => {
@@ -173,22 +173,29 @@ fn process_start() {
 fn process_end() {
     info!("Ending the premade creation process...");
 
-    let state = get_state();
-    let mut state = state.write().expect("couldn't lock state");
-
     let embed = CreateEmbed::default();
     let embed = embed.color(Colour::from_rgb(120, 17, 176))
                  .title("Today's players")
                  .description("The following players want to play:");
 
-    for s in state.servers.iter() {
-        if let None = s.message {
-            warn!("Initial message not found for server {}!", s.server_id);
-            continue;
-        } 
-        let message_id = s.message.unwrap();
+    let games = get_games();
+    let servers = get_servers();
+
+    for s in servers.iter() {
+        let message_id = {
+            let state = STATE.clone();
+            let state = state.read().expect("couldn't lock settings for reading");
+            match state.get(&s.channel_id) {
+                None => {
+                    warn!("Initial message not found for server {}!", s.server_id);
+                    continue;
+                },
+                Some(mid) => mid.clone(),
+            }
+        };
+
         let mut embed = embed.clone();
-        for g in state.games.iter() {
+        for g in games.iter() {
             let mentions = s.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).expect("couldn't get emojis");
             let mentions = mentions.iter().filter(|user| !user.bot);
             let mentions = mentions.map(&User::mention).try_fold(FoldStrlenState::new(1024), &fold_by_strlen).expect("error while making mentions");
@@ -203,16 +210,17 @@ fn process_end() {
                 .fields(mentions[1..].iter().map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)));
 
         }
-        
-        s.channel_id.send_message(|m| {
+    
+        let result = s.channel_id.send_message(|m| {
             m.embed(|_| embed)
                 .content("@everyone")
-        }).expect("the message couldn't be sent");
-
-    }
-
-    for s in state.servers.iter_mut() {
-        s.message = None;
+        });
+        if let Err(err) = result {
+            warn!("The message couldn't be sent to server {}: {:?}", s.server_id.0, err);
+        }
+        let state = STATE.clone();
+        let mut state = state.write().expect("couldn't lock state for writing");
+        state.remove(&s.channel_id);
     }
 }
 
@@ -228,11 +236,4 @@ struct Server {
     server_id: GuildId,
     channel_id: ChannelId,
     message: Option<MessageId>,
-}
-
-/// The PremadeCreator struct keeps track of the messages used for getting user game choices and
-/// various state/configuration variables.
-struct PremadeCreator {
-    games: Vec<GameInfo>,
-    servers: Vec<Server>,
 }
