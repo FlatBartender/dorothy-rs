@@ -50,6 +50,7 @@ use std::collections::HashMap;
 
 use get_settings;
 use utils::*;
+use dorothy::Module;
 
 lazy_static! {
     static ref STATE: Arc<RwLock<HashMap<ChannelId, MessageId>>> = {
@@ -128,37 +129,39 @@ fn get_servers() -> Vec<Server> {
     }).collect()
 }
 
-/// Main function of this module.
-///
-/// Initializes the job scheduler.
-pub fn register(framework: StandardFramework) -> StandardFramework {
-    let (start_time, end_time) = {
-        let settings = get_settings();
-        let settings = settings.read().expect("couldn't acquire read lock on settings");
+#[derive(Default)]
+pub struct PremadeCreator;
 
-        let start = settings.get_str("premade-creator.start").expect("couldn't get cron line for start event");
-        let end   = settings.get_str("premade-creator.end").expect("couldn't get cron line for end event");
+impl Module for PremadeCreator {
+    fn register(framework: StandardFramework) -> StandardFramework {
+        let (start_time, end_time) = {
+            let settings = get_settings();
+            let settings = settings.read().expect("couldn't acquire read lock on settings");
 
-        (start, end)
-    };
-    
-    thread::spawn(move || {
-        let mut sched = JobScheduler::new();
-        sched.add(Job::new(start_time.parse().expect("bad start syntax"), &process_start));
-        sched.add(Job::new(  end_time.parse().expect("bad start syntax"), &process_end));
+            let start = settings.get_str("premade-creator.start").expect("couldn't get cron line for start event");
+            let end   = settings.get_str("premade-creator.end").expect("couldn't get cron line for end event");
 
-        loop {
-            sched.tick();
-            let tick_size = {
-                let settings = get_settings();
-                let settings = settings.read().expect("couldn't lock settings for reading");
-                Duration::from_secs(settings.get::<u64>("premade-creator.tick").expect("couldn't find tick length"))
-            };
-            thread::sleep(tick_size);
-        }
-    });
+            (start, end)
+        };
 
-    framework
+        thread::spawn(move || {
+            let mut sched = JobScheduler::new();
+            sched.add(Job::new(start_time.parse().expect("bad start syntax"), &process_start));
+            sched.add(Job::new(  end_time.parse().expect("bad start syntax"), &process_end));
+
+            loop {
+                sched.tick();
+                let tick_size = {
+                    let settings = get_settings();
+                    let settings = settings.read().expect("couldn't lock settings for reading");
+                    Duration::from_secs(settings.get::<u64>("premade-creator.tick").expect("couldn't find tick length"))
+                };
+                thread::sleep(tick_size);
+            }
+        });
+
+        framework
+    }
 }
 
 /// Convenience function to turn an Option<Vec<RoleId>> into a string mentioning the roles, if not

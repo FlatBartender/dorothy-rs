@@ -7,6 +7,8 @@ extern crate job_scheduler;
 #[macro_use]
 extern crate lazy_static;
 
+use serenity::framework::StandardFramework;
+
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -14,6 +16,10 @@ pub mod dorothy;
 pub mod utils;
 pub mod premade_creator;
 pub mod misc;
+
+use premade_creator::PremadeCreator;
+use misc::Misc;
+use dorothy::Module;
 
 lazy_static! {
     static ref SETTINGS: Arc<RwLock<config::Config>> = {
@@ -45,21 +51,23 @@ fn main() {
 
     let mut client = serenity::client::Client::new(&token, dorothy).expect("couldn't login");
 
-    let framework = serenity::framework::StandardFramework::new();
-    let mut framework = framework.configure(|c| c.prefix("d!"));
+    let framework = serenity::framework::StandardFramework::default();
+    let mut framework = framework.configure(|c| c.prefix("!"))
+        .on_dispatch_error(|_, _, e| warn!("Dispatch error: {:?}", e))
+        .help(serenity::framework::standard::help_commands::with_embeds);
 
-    let mut modules = Vec::new();
+    let mut modules: Vec<Box<Fn(StandardFramework) -> StandardFramework>> = Vec::new();
     
     // Register modules here. Simply put the result of their init function in the modules array. 
     
-    modules.push(&premade_creator::register);
-    modules.push(&misc::register);
+    modules.push(Box::new(&PremadeCreator::register));
+    modules.push(Box::new(&Misc::register));
     
     for register in modules.iter_mut() {
         framework = register(framework);
     }
 
     client.with_framework(framework);
-    
+
     client.start().expect("couldn't start bot");
 }
