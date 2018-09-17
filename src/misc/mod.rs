@@ -16,7 +16,8 @@ pub struct Misc;
 impl Module for Misc {
     fn register(framework: StandardFramework) -> StandardFramework {
         framework.group("Misc", |g| {
-            g.cmd("id", MentionIdsCommand::default())
+            g.desc("Miscellaneous commands")
+                .cmd("id", MentionIdsCommand::default())
         })
     }
 }
