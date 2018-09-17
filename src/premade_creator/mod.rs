@@ -17,16 +17,18 @@
 /// * an emoji is either a string (for unicode emojis) or an array [name, id].
 use job_scheduler::{JobScheduler, Job};
 
-use serenity;
 use serenity::prelude::*;
 use serenity::model::prelude::*;
 use serenity::framework::StandardFramework;
+use serenity::utils::Colour;
+use serenity::builder::*;
 
 use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, RwLock};
 
 use get_settings;
+use utils::*;
 
 static mut STATE: Option<Arc<RwLock<PremadeCreator>>> = None;
 
@@ -101,8 +103,9 @@ pub fn register(framework: StandardFramework) -> StandardFramework {
 
         loop {
             sched.tick();
-            let tick_size {
-                let settings = get_settings().read().expect("couldn't lock settings for reading");
+            let tick_size = {
+                let settings = get_settings();
+                let settings = settings.read().expect("couldn't lock settings for reading");
                 Duration::from_secs(settings.get::<u64>("premade-creator.tick").expect("couldn't find tick length"))
             };
             thread::sleep(tick_size);
@@ -118,30 +121,42 @@ fn process_start() {
     let state = get_state();
     let mut state = state.write().expect("couldn't lock state");
     
-    let mut message = "Today, these following games are available!\n".to_string();
-    message.push_str("React with the correct emoji to participate!\n\n");
-    
-    let mut reactions = Vec::with_capacity(state.games.len());
+    // Yeah I realize I could use the r#""# notation but this is way more readable imo.
+    let embed_description = vec![
+        "Today, these following games are available!".to_string(),
+        "React with the corresponding emoji to participate!\n".to_string(),
+    ].join("\n");
 
+
+    let mut reactions   = Vec::with_capacity(state.games.len());
+    let mut embed_games = Vec::with_capacity(state.games.len());
     for g in state.games.iter() {
         reactions.push(g.emoji.clone());
-        match g.emoji {
-            ReactionType::Unicode(ref emoji) => message.push_str(&format!("{} -> {}\n", &g.name, emoji)),
-            ReactionType::Custom{name: Some(ref name), id: EmojiId(ref id), ..} => message.push_str(&format!("{} -> <{}:{}>\n", &g.name, name, id)),
-            _ => {
-                info!("Problem getting emoji.");
-            }
-        }
+        embed_games.push(format!("{} -> `{}`", g.emoji, g.name));
     }
+
+    let embed_games = embed_games.into_iter().try_fold(FoldStrlenState::new(1024), &fold_by_strlen).expect("error while creating games message");
+    let embed_games = embed_games.extract().iter().map(|v| v.join("\n")).collect::<Vec<String>>();
+
+    if embed_games.len() == 0 {
+        return;
+    }
+
+    let embed = CreateEmbed::default();
+    let embed = embed.color(Colour::from_rgb(120, 17, 176))
+                 .title("Pick your games!")
+                 .description(&embed_description)
+                 .field("Games", &embed_games[0], false)
+                 .fields(embed_games[1..].iter().map(|g| ("Games (cont)", g, false)));
+
+    let message = CreateMessage::default();
+    let message = message.embed(|_| embed)
+        .content("@everyone")
+        .reactions(reactions.into_iter());
 
     for s in state.servers.iter_mut() {
         // @TODO fix the @@everyone problem
-        let message = format!("{}\n{}!\n", message, RoleId(s.server_id.0).mention());
-        let result = s.channel_id.send_message(|m| {
-            m.content(&message)
-                .tts(false)
-                .reactions(reactions.clone().into_iter())
-        });
+        let result = s.channel_id.send_message(|_| message.clone());
         match result {
             // Message successfully sent, keeping the ID in memory
             Ok(msg) => {
@@ -149,7 +164,7 @@ fn process_start() {
             },
             // Message wasn't sent correctly. Forwarding error to user.
             Err(e) => {
-                info!("Couldn't send message to server {}: {}", s.server_id.0, e);
+                warn!("Couldn't send message to server {}: {:?}", s.server_id.0, e);
             }
         };
     }
@@ -161,28 +176,38 @@ fn process_end() {
     let state = get_state();
     let mut state = state.write().expect("couldn't lock state");
 
+    let embed = CreateEmbed::default();
+    let embed = embed.color(Colour::from_rgb(120, 17, 176))
+                 .title("Today's players")
+                 .description("The following players want to play:");
+
     for s in state.servers.iter() {
         if let None = s.message {
             warn!("Initial message not found for server {}!", s.server_id);
             continue;
-        }
+        } 
+        let message_id = s.message.unwrap();
+        let mut embed = embed.clone();
         for g in state.games.iter() {
-            let mut message = serenity::utils::MessageBuilder::new()
-                .push("Today, the following people want to play ")
-                .push(g.name.clone())
-                .push_line(":");
-            
-            // It should be ok to unwrap the option here because we check for it's existence before
-            let message_id = s.message.unwrap();
-            let mentions = s.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).unwrap();
+            let mentions = s.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).expect("couldn't get emojis");
             let mentions = mentions.iter().filter(|user| !user.bot);
-            let mentions: Vec<String> = mentions.map(&User::mention).collect();
-            let message = message.push_line(mentions.join(", ")).build();
-            s.channel_id.send_message(|m| {
-                m.content(message)
-                    .tts(false)
-            }).expect("the message couldn't be sent");
+            let mentions = mentions.map(&User::mention).try_fold(FoldStrlenState::new(1024), &fold_by_strlen).expect("error while making mentions");
+            let mut mentions = mentions.extract().iter().map(|v| v.join(", ")).collect::<Vec<String>>();
+            
+            // If nobody answered for this particular game, skip
+            if mentions.len() == 0 {
+                continue;
+            }
+
+            embed = embed.field(format!("{} {}", g.emoji, g.name), mentions[0].clone(), false)
+                .fields(mentions[1..].iter().map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)));
+
         }
+        
+        s.channel_id.send_message(|m| {
+            m.embed(|_| embed)
+        }).expect("the message couldn't be sent");
+
     }
 
     for s in state.servers.iter_mut() {

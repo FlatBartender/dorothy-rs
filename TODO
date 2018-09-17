@@ -4,3 +4,4 @@
 
 - Use a persistent store for configuration variables in modules
 - Add role calls
+- Move getting settings where it's important so refreshing the settings is useful

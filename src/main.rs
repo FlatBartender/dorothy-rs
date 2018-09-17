@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 pub mod dorothy;
+pub mod utils;
 pub mod premade_creator;
 
 static mut SETTINGS: Option<Arc<RwLock<config::Config>>> = None;
