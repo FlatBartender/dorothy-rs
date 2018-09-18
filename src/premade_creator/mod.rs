@@ -68,40 +68,6 @@ lazy_static! {
     };
 }
 
-/// Convenience method to get the games list.
-///
-/// Currently using the global settings, but in the future we might want to get things from a data
-/// store.
-fn get_games() -> Vec<GameInfo> {
-    let settings = get_settings();
-    let settings = settings.read().expect("couldn't acquire read lock on settings");
-
-    let games = settings.get_array("premade-creator.games").expect("couldn't get games");
-
-    games.into_iter().map(|v| {
-        let v = v.into_array().expect("value isn't an array");
-        let name = v[0].clone().into_str().expect("couldn't parse name");
-
-        // @TODO Get infos on how ser/de is done. We might avoid this little hell.
-        let emoji = match v[1].clone().into_str() {
-            // Emoji is a unicode emoji
-            Ok(s) => ReactionType::Unicode(s.to_string()),
-            // Emoji is either unparseable or a custom emoji
-            Err(_) => {
-                panic!("Can't use custom emojis yet");
-            }
-        };
-
-            let team_size: u32 = v[2].clone().into_str().expect("couldn't deserialize team size").parse().expect("couldn't parse team size");
-
-            GameInfo {
-                name,
-                emoji,
-                team_size,
-            }
-    }).collect()
-}
-
 #[derive(Default)]
 pub struct PremadeCreator;
 
@@ -176,7 +142,7 @@ fn process_start(server_id: GuildId) {
         "React with the corresponding emoji to participate!\n".to_string(),
     ].join("\n");
 
-    let games = get_games();
+    let games = &server.games;
     let mut reactions   = Vec::with_capacity(games.len());
     let mut embed_games = Vec::with_capacity(games.len());
     for g in games.iter() {
@@ -227,7 +193,6 @@ fn process_end(server_id: GuildId) {
         .title("Today's players")
         .description("The following players want to play:");
 
-    let games = get_games();
     let server = {
         let config = CONFIG.clone();
         let config = config.read().expect("couldn't lock config for reading");
@@ -239,6 +204,7 @@ fn process_end(server_id: GuildId) {
         config.unwrap().clone()
     };
 
+    let games = &server.games;
     let message_id = {
         let state = STATE.clone();
         let state = state.read().expect("couldn't lock state for reading");
@@ -263,17 +229,17 @@ fn process_end(server_id: GuildId) {
             continue;
         }
 
-        embed = embed.field(format!("{} {}", g.emoji, g.name), mentions[0].clone(), false)
+        let embed = embed.clone();
+        let embed = embed.field(format!("{} {}", g.emoji, g.name), mentions[0].clone(), false)
             .fields(mentions[1..].iter().map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)));
 
-    }
-
-    let result = server.channel_id.send_message(|m| {
-        let message = m.embed(|_| embed);
-        message.content(role_list_to_mentions(&server.role_ids))
-    });
-    if let Err(err) = result {
-        warn!("The message couldn't be sent to server {}: {:?}", server_id, err);
+        let result = g.channel_id.send_message(|m| {
+            let message = m.embed(|_| embed);
+            message.content(role_list_to_mentions(&g.role_ids))
+        });
+        if let Err(err) = result {
+            warn!("The message couldn't be sent to server {}: {:?}", server_id, err);
+        }
     }
 
     let state = STATE.clone();
@@ -282,14 +248,14 @@ fn process_end(server_id: GuildId) {
 }
 
 /// Represents a game info.
-/// A game has a name that will represent it everywhere, an emoji used in reactions, and a
-/// team_size (currently not used, but in the future we might want to make random teams from all
-/// the answers).
+/// A game has a name that will represent it everywhere, an emoji used in reactions, a list of
+/// roles to be @ed when the game's message is sent, and a channel to send the message to.
 #[derive(Clone, Serialize, Deserialize)]
 struct GameInfo {
     name: String,
     emoji: ReactionType,
-    team_size: u32,
+    role_ids: Option<Vec<RoleId>>,
+    channel_id: ChannelId,
 }
 
 /// Represents a server.
@@ -302,4 +268,5 @@ struct Server {
     start: String,
     end: String,
     role_ids: Option<Vec<RoleId>>,
+    games: Vec<GameInfo>,
 }
