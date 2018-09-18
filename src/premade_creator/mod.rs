@@ -217,9 +217,8 @@ fn process_end(server_id: GuildId) {
         }
     };
 
-    let mut embed = embed.clone();
     for g in games.iter() {
-        let mentions = server.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).expect("couldn't get emojis");
+        let mentions = server.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).expect("couldn't get reactions");
         let mentions = mentions.iter().filter(|user| !user.bot);
         let mentions = mentions.map(&User::mention).try_fold(FoldStrlenState::new(900), &fold_by_strlen).expect("error while making mentions");
         let mut mentions = mentions.extract().iter().map(|v| v.join(", ")).collect::<Vec<String>>();
