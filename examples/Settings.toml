@@ -3,8 +3,3 @@ token = "<insert your bot token here>"
 
 [premade-creator]
 tick  = 1
-games = [
-    ["légoléjande",   "🦈", "5"],
-    ["overwatch",     "🔫", "6"],
-    ["rocket league", "🏎", "3"],
-]
