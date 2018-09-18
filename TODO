@@ -5,5 +5,3 @@
 ### PremadeCreator
 
 - Add a configuration command to configure each server individually
-- Move the STATE into CONFIG as non-serializable fields ?
-- Create random teams with the players who reacted ?
