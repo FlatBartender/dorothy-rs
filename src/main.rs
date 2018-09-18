@@ -6,6 +6,10 @@ extern crate config;
 extern crate job_scheduler;
 #[macro_use]
 extern crate lazy_static;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 use serenity::framework::StandardFramework;
 

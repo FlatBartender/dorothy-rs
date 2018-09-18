@@ -2,37 +2,28 @@
 //! Since it operates not based on messages but on time events, it doesn't register a struct in
 //! the handlers array but instead the state is kept in a static variable.
 //!
-//! It needs to find the `premade-creator.start` and the `premade-creator.end` strings in the
-//! config, syntax is cron (see job_scheduler crate documentation).
-//! At the start event it will @everyone with a list of games associated with emojis 
+//! At the start event it will mention specific roles with a list of games associated with emojis 
 //! under `premade-creator.games` (as key-value pairs, game name -> [emoji*, team size]).
-//! At the end event, it will look for reactions on the message posted for the start, form teams
-//! with people who reacted to the corresponding emoji, send multiple messages to the teams, and @
-//! the remaining people who haven't been chosen.
+//! At the end event, it will look for reactions on the message posted for the start, and send a
+//! message with all the people who reacted, and mention the specific roles.
 //! The job scheduler will check every `premade-creator.tick` seconds (int) for the events.
-//! `premade-creator.servers` will be a table associating a server ID in a string (can't use u64s
-//! as keys) with an array containing, first, the channel id, then role ids. For each of these 
-//! servers, the bot will send the message on the specified channel, while @ing the specified role
-//! (or nobody if there's no role).
-//!
+//! "specific roles" are stored individually for each server. If no role is specified, no mention
+//! gets sent.
 //! * an emoji is either a string (for unicode emojis) or an array [name, id].
 //!
-//!
 //! Configuration example:
-//! ```toml
-//! [premade-creator]
-//! start = "0  * * * * *"
-//! end   = "30 * * * * *"
-//! tick  = 1
-//! games = [
-//!     ["légoléjande",   "🦈", "5"],
-//!     ["overwatch",     "🔫", "6"],
-//!     ["rocket league", "🏎", "3"],
-//! ]
-//! 
-//! [premade-creator.servers]
-//! "server id"   = [channel id, role id 1, role id 2]
-//! "server id 2" = [channel id 2]
+//! ```json
+//! {
+//!     "359818298067779584": {                 // Server ID, as a string
+//!         "channel_id": 376355712223412225,   // Channel ID, as a number
+//!         "start": "0  * * * * *",            // Like cron, but with an additional number for 
+//!                                             // seconds (here, at second 0 of every minute)
+//!         "end":   "30 * * * * *",            // Same
+//!         "role_ids": [
+//!             376685245409525760              // List of roles in number form
+//!         ]
+//!     }
+//! }
 //! ```
 
 use job_scheduler::{JobScheduler, Job};
@@ -43,10 +34,13 @@ use serenity::framework::StandardFramework;
 use serenity::utils::Colour;
 use serenity::builder::*;
 
+use serde_json::from_reader;
+
 use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
+use std::fs::File;
 
 use get_settings;
 use utils::*;
@@ -58,6 +52,18 @@ lazy_static! {
         // Keeping the space for 500 message IDs is really inexpensive memory-wise (a few
         // kilobytes, maybe a couple dozen kb with the hashmap overhead AT MOST).
         Arc::new(RwLock::new(HashMap::with_capacity(500)))
+    };
+
+    static ref CONFIG: Arc<RwLock<HashMap<GuildId, Arc<Server>>>> = {
+        let file = File::open("data/premade_creator.json");
+        if let Err(_) = file {
+            return Arc::new(RwLock::new(HashMap::new()));
+        }
+        let file = file.unwrap();
+        Arc::new(RwLock::new(from_reader(file).unwrap_or_else(|e| {
+            warn!("couldn't deserialize premade_creator config: {:?}", e);
+            HashMap::new()
+        })))
     };
 }
 
@@ -95,59 +101,28 @@ fn get_games() -> Vec<GameInfo> {
     }).collect()
 }
 
-/// Convenience method to get the servers list.
-///
-/// Currently using the global settings, but in the future we might want to get things from a data
-/// store.
-fn get_servers() -> Vec<Server> {
-    let settings = get_settings();
-    let settings = settings.read().expect("couldn't acquire read lock on settings");
-    
-    let servers = settings.get_table("premade-creator.servers").expect("couldn't get servers");
-    servers.into_iter().map(|(server, infos)| {
-        let server_id = GuildId(server.parse().expect("couldn't parse server string"));
-        let infos = infos.into_array().expect("couldn't parse server infos");
-        if infos.len() == 0 {
-            panic!("server infos need to have at least one element");
-        }
-        let channel_id = ChannelId(infos[0].clone().try_into().expect("couldn't deserialize channel"));
-
-        let role_ids = if infos[1..].len() == 0 {
-            None
-        } else {
-            Some(infos[1..].iter().map(|role| {
-                let role = role.clone().try_into().expect("couldn't parse role id");
-                RoleId(role)
-            }).collect())
-        };
-    
-        Server {
-            server_id,
-            channel_id,
-            role_ids
-        }
-    }).collect()
-}
-
 #[derive(Default)]
 pub struct PremadeCreator;
 
 impl Module for PremadeCreator {
     fn register(framework: StandardFramework) -> StandardFramework {
-        let (start_time, end_time) = {
-            let settings = get_settings();
-            let settings = settings.read().expect("couldn't acquire read lock on settings");
-
-            let start = settings.get_str("premade-creator.start").expect("couldn't get cron line for start event");
-            let end   = settings.get_str("premade-creator.end").expect("couldn't get cron line for end event");
-
-            (start, end)
-        };
-
         thread::spawn(move || {
             let mut sched = JobScheduler::new();
-            sched.add(Job::new(start_time.parse().expect("bad start syntax"), &process_start));
-            sched.add(Job::new(  end_time.parse().expect("bad start syntax"), &process_end));
+            
+            {
+                let config = CONFIG.clone();
+                let config = config.read().expect("couldn't lock config for reading");
+
+                for (server_id, server) in config.iter() {
+                    let sid = server_id.clone();
+                    sched.add(Job::new(server.start.parse().expect("bad start syntax"),
+                                       move || process_start(sid)));
+                    let sid = server_id.clone();
+                    sched.add(Job::new(server.  end.parse().expect("bad end syntax"),
+                                       move || process_end  (sid)));
+                }
+            }
+
 
             loop {
                 sched.tick();
@@ -180,8 +155,19 @@ fn role_list_to_mentions(roles: &Option<Vec<RoleId>>) -> String {
 /// Function called at the "start" event, which will go through all the servers in the list to @
 /// the proper roles proposing them a few games. Potential players need to react with the proper
 /// reactions.
-fn process_start() {
-    info!("Starting the premade creation process...");
+fn process_start(server_id: GuildId) {
+    info!("Starting the premade creation process in server {}...", server_id);
+
+    let server = {
+        let config = CONFIG.clone();
+        let config = config.read().expect("couldn't lock config for reading");
+        let config = config.get(&server_id);
+        if let None = config {
+            warn!("process started for server {} but config not found", server_id);
+            return;
+        }
+        config.unwrap().clone()
+    };
 
     // Yeah I realize I could use the r#""# notation but this is way more readable imo.
     let embed_description = vec![
@@ -215,87 +201,90 @@ fn process_start() {
     let message = message.embed(|_| embed)
         .reactions(reactions.into_iter());
     
-    let servers = get_servers();
-
-    let state = STATE.clone();
-    let mut state = state.write().expect("couldn't lock state");
-    for s in servers.iter() {
-        let message = message.clone();
-        let message = message.content(role_list_to_mentions(&s.role_ids));
-        match s.channel_id.send_message(|_| message.clone()) {
-            // Message successfully sent, keep the ID in memory
-            Ok(msg) => {
-                state.insert(s.channel_id, msg.id);
-            },
-            // Message wasn't sent correctly. Forwarding error to user.
-            Err(e) => {
-                warn!("Couldn't send message to server {}: {:?}", s.server_id.0, e);
-            }
-        };
-    }
+    let message = message.content(role_list_to_mentions(&server.role_ids));
+    match server.channel_id.send_message(|_| message.clone()) {
+        // Message successfully sent, keep the ID in memory
+        Ok(msg) => {
+            let state = STATE.clone();
+            let mut state = state.write().expect("couldn't lock state for writing");
+            state.insert(server.channel_id, msg.id);
+        },
+        // Message wasn't sent correctly. Forwarding error to user.
+        Err(e) => {
+            warn!("Couldn't send message to server {}: {:?}", server_id.0, e);
+        }
+    };
 }
 
 /// Function called at the "end" event. Traverses all the list of servers to find out the messages
 /// it sent, and writes a message with all players for every particular game.
-fn process_end() {
+fn process_end(server_id: GuildId) {
     info!("Ending the premade creation process...");
 
     let embed = CreateEmbed::default();
     let embed = embed.color(Colour::from_rgb(120, 17, 176))
-                 .title("Today's players")
-                 .description("The following players want to play:");
+        .title("Today's players")
+        .description("The following players want to play:");
 
     let games = get_games();
-    let servers = get_servers();
-
-    for s in servers.iter() {
-        let message_id = {
-            let state = STATE.clone();
-            let state = state.read().expect("couldn't lock settings for reading");
-            match state.get(&s.channel_id) {
-                None => {
-                    warn!("Initial message not found for server {}!", s.server_id);
-                    continue;
-                },
-                Some(mid) => mid.clone(),
-            }
-        };
-
-        let mut embed = embed.clone();
-        for g in games.iter() {
-            let mentions = s.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).expect("couldn't get emojis");
-            let mentions = mentions.iter().filter(|user| !user.bot);
-            let mentions = mentions.map(&User::mention).try_fold(FoldStrlenState::new(900), &fold_by_strlen).expect("error while making mentions");
-            let mut mentions = mentions.extract().iter().map(|v| v.join(", ")).collect::<Vec<String>>();
-            
-            // If nobody answered for this particular game, skip
-            if mentions.len() == 0 {
-                continue;
-            }
-
-            embed = embed.field(format!("{} {}", g.emoji, g.name), mentions[0].clone(), false)
-                .fields(mentions[1..].iter().map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)));
-
+    let server = {
+        let config = CONFIG.clone();
+        let config = config.read().expect("couldn't lock config for reading");
+        let config = config.get(&server_id);
+        if let None = config {
+            warn!("process started for server {} but config not found", server_id);
+            return;
         }
-        
-        let result = s.channel_id.send_message(|m| {
-            let message = m.embed(|_| embed);
-            message.content(role_list_to_mentions(&s.role_ids))
-        });
-        if let Err(err) = result {
-            warn!("The message couldn't be sent to server {}: {:?}", s.server_id.0, err);
-        }
+        config.unwrap().clone()
+    };
+
+    let message_id = {
         let state = STATE.clone();
-        let mut state = state.write().expect("couldn't lock state for writing");
-        state.remove(&s.channel_id);
+        let state = state.read().expect("couldn't lock state for reading");
+        match state.get(&server.channel_id) {
+            None => {
+                warn!("Initial message not found for server {}!", server_id);
+                return;
+            },
+            Some(mid) => mid.clone(),
+        }
+    };
+
+    let mut embed = embed.clone();
+    for g in games.iter() {
+        let mentions = server.channel_id.reaction_users(message_id, g.emoji.clone(), None, None).expect("couldn't get emojis");
+        let mentions = mentions.iter().filter(|user| !user.bot);
+        let mentions = mentions.map(&User::mention).try_fold(FoldStrlenState::new(900), &fold_by_strlen).expect("error while making mentions");
+        let mut mentions = mentions.extract().iter().map(|v| v.join(", ")).collect::<Vec<String>>();
+
+        // If nobody answered for this particular game, skip
+        if mentions.len() == 0 {
+            continue;
+        }
+
+        embed = embed.field(format!("{} {}", g.emoji, g.name), mentions[0].clone(), false)
+            .fields(mentions[1..].iter().map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)));
+
     }
+
+    let result = server.channel_id.send_message(|m| {
+        let message = m.embed(|_| embed);
+        message.content(role_list_to_mentions(&server.role_ids))
+    });
+    if let Err(err) = result {
+        warn!("The message couldn't be sent to server {}: {:?}", server_id, err);
+    }
+
+    let state = STATE.clone();
+    let mut state = state.write().expect("couldn't lock state for writing");
+    state.remove(&server.channel_id);
 }
 
 /// Represents a game info.
 /// A game has a name that will represent it everywhere, an emoji used in reactions, and a
 /// team_size (currently not used, but in the future we might want to make random teams from all
 /// the answers).
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct GameInfo {
     name: String,
     emoji: ReactionType,
@@ -303,11 +292,13 @@ struct GameInfo {
 }
 
 /// Represents a server.
-/// A server has a server id, a channel id representing the channel to which the messages will be
-/// sent, and an optional list of roles to be @ed when the messages are sent.
-#[derive(Clone)]
+/// A server has a channel id representing the channel to which the messages will sent,
+/// start and end strings representing times at which the events will fire (cron syntax),
+/// and an optional list of roles to be @ed when the messages are sent.
+#[derive(Clone, Serialize, Deserialize)]
 struct Server {
-    server_id: GuildId,
     channel_id: ChannelId,
+    start: String,
+    end: String,
     role_ids: Option<Vec<RoleId>>,
 }
