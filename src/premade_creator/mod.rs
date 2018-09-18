@@ -19,6 +19,21 @@
 //!         "start": "0  * * * * *",            // Like cron, but with an additional number for 
 //!                                             // seconds (here, at second 0 of every minute)
 //!         "end":   "30 * * * * *",            // Same
+//!         "games": [{
+//!             "name": "légoléjande",              // Game name
+//!             "channel_id": 491722712562139136,   // Where to send the message to
+//!             "emoji": {"name": "🦈"},            // Emoji. BE CAREFUL, the Unicode variant still
+//!                                                 // asks for the "name" field!
+//!             "role_ids": [491723066372653057]    // An optional list of roles to mention
+//!         }, {
+//!             "name": "overwatch",
+//!             "channel_id": 491722745500008458,
+//!             "emoji": {"name": "🔫"}
+//!         }, {
+//!             "name": "Rocket League",
+//!             "channel_id": 491722776055644160,
+//!             "emoji": {"name": "🏎"}
+//!         }],
 //!         "role_ids": [
 //!             376685245409525760              // List of roles in number form
 //!         ]
