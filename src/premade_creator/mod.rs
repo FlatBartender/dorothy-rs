@@ -55,14 +55,15 @@ lazy_static! {
     };
 
     static ref CONFIG: Arc<RwLock<HashMap<GuildId, Arc<Server>>>> = {
+        // @TUNE Same here, structs aren't that expensive.
         let file = File::open("data/premade_creator.json");
         if let Err(_) = file {
-            return Arc::new(RwLock::new(HashMap::new()));
+            return Arc::new(RwLock::new(HashMap::with_capacity(500)));
         }
         let file = file.unwrap();
         Arc::new(RwLock::new(from_reader(file).unwrap_or_else(|e| {
             warn!("couldn't deserialize premade_creator config: {:?}", e);
-            HashMap::new()
+            HashMap::with_capacity(500)
         })))
     };
 }
