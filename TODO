@@ -1,5 +1,9 @@
 ## TODO
 
+- Use a persistent store for configuration variables in modules (example: see premade_creator)
+
 ### PremadeCreator
 
-- Use a persistent store for configuration variables in modules
+- Add a configuration command to configure each server individually
+- Move the STATE into CONFIG as non-serializable fields ?
+- Create random teams with the players who reacted ?
