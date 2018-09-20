@@ -62,24 +62,24 @@ use utils::*;
 use dorothy::Module;
 
 lazy_static! {
-    static ref STATE: Arc<RwLock<HashMap<ChannelId, MessageId>>> = {
+    static ref STATE: RwLock<HashMap<ChannelId, MessageId>> = {
         // @TUNE Change the number of reserved slots
         // Keeping the space for 500 message IDs is really inexpensive memory-wise (a few
         // kilobytes, maybe a couple dozen kb with the hashmap overhead AT MOST).
-        Arc::new(RwLock::new(HashMap::with_capacity(500)))
+        RwLock::new(HashMap::with_capacity(500))
     };
 
-    static ref CONFIG: Arc<RwLock<HashMap<GuildId, Arc<Server>>>> = {
+    static ref CONFIG: RwLock<HashMap<GuildId, Arc<Server>>> = {
         // @TUNE Same here, structs aren't that expensive.
         let file = File::open("data/premade_creator.json");
         if let Err(_) = file {
-            return Arc::new(RwLock::new(HashMap::with_capacity(500)));
+            return RwLock::new(HashMap::with_capacity(500));
         }
         let file = file.unwrap();
-        Arc::new(RwLock::new(from_reader(file).unwrap_or_else(|e| {
+        RwLock::new(from_reader(file).unwrap_or_else(|e| {
             warn!("couldn't deserialize premade_creator config: {:?}", e);
             HashMap::with_capacity(500)
-        })))
+        }))
     };
 }
 
@@ -92,8 +92,7 @@ impl Module for PremadeCreator {
             let mut sched = JobScheduler::new();
             
             {
-                let config = CONFIG.clone();
-                let config = config.read().expect("couldn't lock config for reading");
+                let config = CONFIG.read().expect("couldn't lock config for reading");
 
                 for (server_id, server) in config.iter() {
                     let sid = server_id.clone();
@@ -141,8 +140,7 @@ fn process_start(server_id: GuildId) {
     info!("Starting the premade creation process in server {}...", server_id);
 
     let server = {
-        let config = CONFIG.clone();
-        let config = config.read().expect("couldn't lock config for reading");
+        let config = CONFIG.read().expect("couldn't lock config for reading");
         let config = config.get(&server_id);
         if let None = config {
             warn!("process started for server {} but config not found", server_id);
@@ -187,8 +185,7 @@ fn process_start(server_id: GuildId) {
     match server.channel_id.send_message(|_| message.clone()) {
         // Message successfully sent, keep the ID in memory
         Ok(msg) => {
-            let state = STATE.clone();
-            let mut state = state.write().expect("couldn't lock state for writing");
+            let mut state = STATE.write().expect("couldn't lock state for writing");
             state.insert(server.channel_id, msg.id);
         },
         // Message wasn't sent correctly. Forwarding error to user.
@@ -209,8 +206,7 @@ fn process_end(server_id: GuildId) {
         .description("The following players want to play:");
 
     let server = {
-        let config = CONFIG.clone();
-        let config = config.read().expect("couldn't lock config for reading");
+        let config = CONFIG.read().expect("couldn't lock config for reading");
         let config = config.get(&server_id);
         if let None = config {
             warn!("process started for server {} but config not found", server_id);
@@ -221,8 +217,7 @@ fn process_end(server_id: GuildId) {
 
     let games = &server.games;
     let message_id = {
-        let state = STATE.clone();
-        let state = state.read().expect("couldn't lock state for reading");
+        let state = STATE.read().expect("couldn't lock state for reading");
         match state.get(&server.channel_id) {
             None => {
                 warn!("Initial message not found for server {}!", server_id);
@@ -256,8 +251,7 @@ fn process_end(server_id: GuildId) {
         }
     }
 
-    let state = STATE.clone();
-    let mut state = state.write().expect("couldn't lock state for writing");
+    let mut state = STATE.write().expect("couldn't lock state for writing");
     state.remove(&server.channel_id);
 }
 
