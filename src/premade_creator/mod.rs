@@ -57,7 +57,7 @@ use std::sync::RwLock;
 use std::collections::HashMap;
 use std::fs::File;
 
-use get_settings;
+use ::SETTINGS;
 use utils::*;
 use dorothy::Module;
 
@@ -108,8 +108,7 @@ impl Module for PremadeCreator {
             loop {
                 sched.tick();
                 let tick_size = {
-                    let settings = get_settings();
-                    let settings = settings.read().expect("couldn't lock settings for reading");
+                    let settings = SETTINGS.read().expect("couldn't lock settings for reading");
                     Duration::from_secs(settings.get::<u64>("premade-creator.tick").expect("couldn't find tick length"))
                 };
                 thread::sleep(tick_size);

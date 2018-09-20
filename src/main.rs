@@ -13,7 +13,6 @@ extern crate serde_json;
 
 use serenity::framework::StandardFramework;
 
-use std::sync::Arc;
 use std::sync::RwLock;
 
 pub mod dorothy;
@@ -26,19 +25,14 @@ use misc::Misc;
 use dorothy::Module;
 
 lazy_static! {
-    static ref SETTINGS: Arc<RwLock<config::Config>> = {
-        Arc::new(RwLock::new(config::Config::default()))
+    static ref SETTINGS: RwLock<config::Config> = {
+        RwLock::new(config::Config::default())
     };
 }
-fn get_settings() -> Arc<RwLock<config::Config>> {
-    SETTINGS.clone()
-}
-
 
 fn init_env() {
     pretty_env_logger::init();    
-    let settings = get_settings();
-    let mut settings = settings.write().expect("couldn't lock the settings for writing");
+    let mut settings = SETTINGS.write().expect("couldn't lock the settings for writing");
     settings.merge(config::File::with_name("Settings")).expect("couldn't find the Settings file");
 }
 
@@ -46,8 +40,7 @@ fn main() {
     init_env();
     
     let token = {
-        let settings = get_settings();
-        let settings = settings.read().expect("couldn't get settings");
+        let settings = SETTINGS.read().expect("couldn't get settings");
         settings.get_str("token").expect("couldn't find token")
     };
 
