@@ -179,7 +179,7 @@ fn process_start(server_id: GuildId) {
         .reactions(reactions.into_iter());
     
     let message = message.content(role_list_to_mentions(&server.role_ids));
-    match server.channel_id.send_message(|_| message.clone()) {
+    match server.channel_id.send_message(|_| message) {
         // Message successfully sent, keep the ID in memory
         Ok(msg) => {
             let mut state = STATE.write().expect("couldn't lock state for writing");
@@ -234,7 +234,7 @@ fn process_end(server_id: GuildId) {
         }
 
         let embed = embed.clone();
-        let embed = embed.field(format!("{} {}", g.emoji, g.name), mentions[0].clone(), false)
+        let embed = embed.field(format!("{} {}", g.emoji, g.name), &mentions[0], false)
             .fields(mentions[1..].iter().map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)));
 
         let result = g.channel_id.send_message(|m| {
