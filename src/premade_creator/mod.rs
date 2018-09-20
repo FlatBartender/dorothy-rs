@@ -53,7 +53,7 @@ use serde_json::from_reader;
 
 use std::thread;
 use std::time::Duration;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use std::collections::HashMap;
 use std::fs::File;
 
@@ -69,7 +69,7 @@ lazy_static! {
         RwLock::new(HashMap::with_capacity(500))
     };
 
-    static ref CONFIG: RwLock<HashMap<GuildId, Arc<Server>>> = {
+    static ref CONFIG: RwLock<HashMap<GuildId, Server>> = {
         // @TUNE Same here, structs aren't that expensive.
         let file = File::open("data/premade_creator.json");
         if let Err(_) = file {
@@ -139,15 +139,13 @@ fn role_list_to_mentions(roles: &Option<Vec<RoleId>>) -> String {
 fn process_start(server_id: GuildId) {
     info!("Starting the premade creation process in server {}...", server_id);
 
-    let server = {
-        let config = CONFIG.read().expect("couldn't lock config for reading");
-        let config = config.get(&server_id);
-        if let None = config {
-            warn!("process started for server {} but config not found", server_id);
-            return;
-        }
-        config.unwrap().clone()
-    };
+    let config = CONFIG.read().expect("couldn't lock config for reading");
+    let config = config.get(&server_id);
+    if let None = config {
+        warn!("process started for server {} but config not found", server_id);
+        return;
+    }
+    let server = config.unwrap();
 
     // Yeah I realize I could use the r#""# notation but this is way more readable imo.
     let embed_description = vec![
@@ -205,15 +203,13 @@ fn process_end(server_id: GuildId) {
         .title("Today's players")
         .description("The following players want to play:");
 
-    let server = {
-        let config = CONFIG.read().expect("couldn't lock config for reading");
-        let config = config.get(&server_id);
-        if let None = config {
-            warn!("process started for server {} but config not found", server_id);
-            return;
-        }
-        config.unwrap().clone()
-    };
+    let config = CONFIG.read().expect("couldn't lock config for reading");
+    let config = config.get(&server_id);
+    if let None = config {
+        warn!("process started for server {} but config not found", server_id);
+        return;
+    }
+    let server = config.unwrap();
 
     let games = &server.games;
     let message_id = {
