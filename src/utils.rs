@@ -39,7 +39,7 @@ pub fn fold_by_strlen(mut state: FoldStrlenState, item: String) -> FoldStrlenSta
 
     state.current_character_count += item.len();
     state.total_character_count += item.len();
-    vector.push(item.clone());
+    vector.push(item);
 
     state.strings.push(vector);
 
