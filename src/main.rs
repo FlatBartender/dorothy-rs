@@ -14,6 +14,8 @@ extern crate serde_json;
 use serenity::framework::StandardFramework;
 
 use std::sync::RwLock;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 pub mod dorothy;
 pub mod utils;
@@ -39,9 +41,14 @@ fn init_env() {
 fn main() {
     init_env();
     
-    let token = {
+    let (token, owners, prefix) = {
         let settings = SETTINGS.read().expect("couldn't get settings");
-        settings.get_str("token").expect("couldn't find token")
+        let token = settings.get_str("token").expect("couldn't find token");
+        let owners = settings.get_array("owners").expect("couldn't find owners");
+        let owners = owners.into_iter().map(|o| o.try_into().expect("couldn't get owner ID"));
+        let prefix = settings.get_str("prefix").expect("couldn(t finf prefix");
+
+        (token, HashSet::from_iter(owners), prefix)
     };
 
     let dorothy = dorothy::Dorothy::default();
@@ -49,7 +56,8 @@ fn main() {
     let mut client = serenity::client::Client::new(&token, dorothy).expect("couldn't login");
 
     let framework = serenity::framework::StandardFramework::default();
-    let mut framework = framework.configure(|c| c.prefix("!"))
+    let mut framework = framework.configure(|c| c.prefix(&prefix)
+                                            .owners(owners))
         .on_dispatch_error(|_, _, e| warn!("Dispatch error: {:?}", e))
         .help(serenity::framework::standard::help_commands::with_embeds);
 
