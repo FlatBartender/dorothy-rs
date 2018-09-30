@@ -86,13 +86,13 @@ impl Command for MentionIdsCommand {
 // Sweet, sweet code duplication....
 // @DRY
 
-fn user_list_to_mentions(users: &Vec<User>) -> Result<Vec<String>, String> {
+fn user_list_to_mentions(users: &[User]) -> Result<Vec<String>, String> {
     let mut users = users.iter().map(|user| format!("{} -> {}", user.mention(), user.id.0));
     let users = users.try_fold(FoldStrlenState::new(900), &fold_by_strlen)?.extract();
     Ok(users.iter().map(|v| v.join("\n")).collect())
 }
 
-fn role_list_to_mentions(roles: &Vec<RoleId>) -> Result<Vec<String>, String> {
+fn role_list_to_mentions(roles: &[RoleId]) -> Result<Vec<String>, String> {
     let mut roles = roles.iter().map(|role| format!("{} -> {}", role.mention(), role.0));
     let roles = roles.try_fold(FoldStrlenState::new(900), &fold_by_strlen)?.extract();
     Ok(roles.iter().map(|v| v.join("\n")).collect())
