@@ -49,7 +49,7 @@ use serenity::framework::StandardFramework;
 use serenity::utils::Colour;
 use serenity::builder::*;
 
-use serde_json::from_reader;
+use serde_json::{from_reader, to_writer_pretty};
 
 use std::thread;
 use std::time::Duration;
@@ -60,6 +60,8 @@ use std::fs::File;
 use ::SETTINGS;
 use utils::*;
 use dorothy::Module;
+
+mod creator_command;
 
 lazy_static! {
     static ref STATE: RwLock<HashMap<ChannelId, MessageId>> = {
@@ -72,7 +74,7 @@ lazy_static! {
     static ref CONFIG: RwLock<HashMap<GuildId, Server>> = {
         // @TUNE Same here, structs aren't that expensive.
         let file = File::open("data/premade_creator.json");
-        if let Err(_) = file {
+        if file.is_err() {
             return RwLock::new(HashMap::with_capacity(500));
         }
         let file = file.unwrap();
@@ -81,6 +83,10 @@ lazy_static! {
             HashMap::with_capacity(500)
         }))
     };
+}
+
+fn rehash() {
+    lazy_static::initialize(&CONFIG);
 }
 
 #[derive(Default)]
@@ -95,10 +101,9 @@ impl Module for PremadeCreator {
                 let config = CONFIG.read().expect("couldn't lock config for reading");
 
                 for (server_id, server) in config.iter() {
-                    let sid = server_id.clone();
+                    let sid = *server_id;
                     sched.add(Job::new(server.start.parse().expect("bad start syntax"),
                                        move || process_start(sid)));
-                    let sid = server_id.clone();
                     sched.add(Job::new(server.  end.parse().expect("bad end syntax"),
                                        move || process_end  (sid)));
                 }
@@ -115,7 +120,8 @@ impl Module for PremadeCreator {
             }
         });
 
-        framework
+        framework.group("Premade Creator", |g| g.desc("Commands to manipulate the Premade Creator module")
+                        .cmd("pmconfig", creator_command::CreatorCommand::default()))
     }
 }
 
@@ -140,7 +146,7 @@ fn process_start(server_id: GuildId) {
 
     let config = CONFIG.read().expect("couldn't lock config for reading");
     let config = config.get(&server_id);
-    if let None = config {
+    if config.is_none() {
         warn!("process started for server {} but config not found", server_id);
         return;
     }
@@ -163,7 +169,7 @@ fn process_start(server_id: GuildId) {
     let embed_games = embed_games.into_iter().try_fold(FoldStrlenState::new(900), &fold_by_strlen).expect("error while creating games message");
     let embed_games = embed_games.extract().iter().map(|v| v.join("\n")).collect::<Vec<String>>();
 
-    if embed_games.len() == 0 {
+    if embed_games.is_empty() {
         return;
     }
 
@@ -204,7 +210,7 @@ fn process_end(server_id: GuildId) {
 
     let config = CONFIG.read().expect("couldn't lock config for reading");
     let config = config.get(&server_id);
-    if let None = config {
+    if config.is_none() {
         warn!("process started for server {} but config not found", server_id);
         return;
     }
@@ -218,7 +224,7 @@ fn process_end(server_id: GuildId) {
                 warn!("Initial message not found for server {}!", server_id);
                 return;
             },
-            Some(mid) => mid.clone(),
+            Some(mid) => *mid,
         }
     };
 
@@ -229,7 +235,7 @@ fn process_end(server_id: GuildId) {
         let mut mentions = mentions.extract().iter().map(|v| v.join(", ")).collect::<Vec<String>>();
 
         // If nobody answered for this particular game, skip
-        if mentions.len() == 0 {
+        if mentions.is_empty() {
             continue;
         }
 
@@ -250,6 +256,16 @@ fn process_end(server_id: GuildId) {
     state.remove(&server.channel_id);
 }
 
+use std::fs::OpenOptions;
+
+fn save_config() -> Result<(), String> {
+    let file = OpenOptions::new().write(true).open("data/premade_creator.json");
+    let file = file.map_err(|e| format!("{}", e))?;
+
+    let config = CONFIG.read().expect("couldn't lock CONFIG for writing");
+    to_writer_pretty(file, &*config).map_err(|e| format!("{}", e))
+}
+
 /// Represents a game info.
 /// A game has a name that will represent it everywhere, an emoji used in reactions, a list of
 /// roles to be @ed when the game's message is sent, and a channel to send the message to.
@@ -265,7 +281,7 @@ struct GameInfo {
 /// A server has a channel id representing the channel to which the messages will sent,
 /// start and end strings representing times at which the events will fire (cron syntax),
 /// and an optional list of roles to be @ed when the messages are sent.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 struct Server {
     channel_id: ChannelId,
     start: String,
@@ -273,3 +289,5 @@ struct Server {
     role_ids: Option<Vec<RoleId>>,
     games: Vec<GameInfo>,
 }
+
+
