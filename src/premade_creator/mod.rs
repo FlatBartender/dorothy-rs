@@ -46,6 +46,8 @@ use job_scheduler::{JobScheduler, Job};
 use serenity::prelude::*;
 use serenity::model::prelude::*;
 use serenity::framework::StandardFramework;
+use serenity::framework::standard::CommandError;
+use serenity::framework::standard::Args;
 use serenity::utils::Colour;
 use serenity::builder::*;
 
@@ -54,6 +56,7 @@ use serde_json::{from_reader, to_writer_pretty};
 use std::thread;
 use std::time::Duration;
 use std::sync::RwLock;
+use std::sync::mpsc::*;
 use std::collections::HashMap;
 use std::fs::File;
 
@@ -85,8 +88,19 @@ lazy_static! {
     };
 }
 
-fn rehash() {
+static mut SCHED_CHANNEL_TX: Option<Sender<()>> = None;
+
+fn rehash(_: &mut Context, _: &Message, _: Args) -> Result<(), CommandError> {
     lazy_static::initialize(&CONFIG);
+    unsafe {
+        if let Some(ref s) = SCHED_CHANNEL_TX {
+            // The other end NEEDS to be connected to work correctly. We can unwrap since it should
+            // always be the case.
+            s.send(()).unwrap();
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Default)]
@@ -94,34 +108,42 @@ pub struct PremadeCreator;
 
 impl Module for PremadeCreator {
     fn register(framework: StandardFramework) -> StandardFramework {
+        let (sched_tx, sched_rx) = channel();
+
+        unsafe {
+            SCHED_CHANNEL_TX = Some(sched_tx);
+        }
+
         thread::spawn(move || {
-            let mut sched = JobScheduler::new();
-            
-            {
-                let config = CONFIG.read().expect("couldn't lock config for reading");
-
-                for (server_id, server) in config.iter() {
-                    let sid = *server_id;
-                    sched.add(Job::new(server.start.parse().expect("bad start syntax"),
-                                       move || process_start(sid)));
-                    sched.add(Job::new(server.  end.parse().expect("bad end syntax"),
-                                       move || process_end  (sid)));
-                }
-            }
-
-
             loop {
-                sched.tick();
-                let tick_size = {
-                    let settings = SETTINGS.read().expect("couldn't lock settings for reading");
-                    Duration::from_secs(settings.get::<u64>("premade-creator.tick").expect("couldn't find tick length"))
-                };
-                thread::sleep(tick_size);
+                let mut sched = JobScheduler::new();
+
+                {
+                    let config = CONFIG.read().expect("couldn't lock config for reading");
+
+                    for (server_id, server) in config.iter() {
+                        let sid = *server_id;
+                        sched.add(Job::new(server.start.parse().expect("bad start syntax"),
+                                           move || process_start(sid)));
+                        sched.add(Job::new(server.  end.parse().expect("bad end syntax"),
+                                           move || process_end  (sid)));
+                    }
+                }
+
+                while sched_rx.try_recv().is_err() {
+                    sched.tick();
+                    let tick_size = {
+                        let settings = SETTINGS.read().expect("couldn't lock settings for reading");
+                        Duration::from_secs(settings.get::<u64>("premade-creator.tick").expect("couldn't find tick length"))
+                    };
+                    thread::sleep(tick_size);
+                }
             }
         });
 
         framework.group("Premade Creator", |g| g.desc("Commands to manipulate the Premade Creator module")
-                        .cmd("pmconfig", creator_command::CreatorCommand::default()))
+                        .cmd("pmconfig", creator_command::CreatorCommand::default())
+                        .command("pmrehash", |c| c.owners_only(true).exec(rehash)))
     }
 }
 
