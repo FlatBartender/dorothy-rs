@@ -46,12 +46,14 @@ use job_scheduler::{JobScheduler, Job};
 use serenity::prelude::*;
 use serenity::model::prelude::*;
 use serenity::framework::StandardFramework;
-use serenity::framework::standard::CommandError;
-use serenity::framework::standard::Args;
+use serenity::framework::standard::{CommandError, Args};
 use serenity::utils::Colour;
 use serenity::builder::*;
+use serenity::model::permissions::Permissions;
 
 use serde_json::{from_reader, to_writer_pretty};
+
+use lazy_static;
 
 use std::thread;
 use std::time::Duration;
