@@ -4,4 +4,6 @@
 
 ### PremadeCreator
 
-- Add a configuration command to configure each server individually
+- Add commands to delete a game or a role from the list when configuring
+- Usability: stop asking for IDs and get them from the command line. Serenity+serde should be able to handle this.
+- Remove the Options on vecs and just use empty vecs
