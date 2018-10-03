@@ -144,7 +144,13 @@ impl Module for PremadeCreator {
         });
 
         framework.group("Premade Creator", |g| g.desc("Commands to manipulate the Premade Creator module")
-                        .cmd("pmconfig", creator_command::CreatorCommand::default())
+                        .required_permissions(Permissions::MANAGE_GUILD)
+                        .cmd("pmconfig get",       creator_command::     GetCommand::default())
+                        .cmd("pmconfig create",    creator_command::  CreateCommand::default())
+                        .cmd("pmconfig set",       creator_command::     SetCommand::default())
+                        .cmd("pmconfig add roles", creator_command::AddRolesCommand::default())
+                        .cmd("pmconfig add game",  creator_command:: AddGameCommand::default())
+                        .cmd("pmconfig commit",    creator_command::  CommitCommand::default())
                         .command("pmrehash", |c| c.owners_only(true).exec(rehash)))
     }
 }
