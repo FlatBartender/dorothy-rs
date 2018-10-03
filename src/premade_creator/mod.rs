@@ -283,9 +283,9 @@ fn process_end(server_id: GuildId) {
 use std::fs::OpenOptions;
 
 fn save_config() -> Result<(), String> {
-    let file = OpenOptions::new().write(true).open("data/premade_creator.json");
-    let file = file.map_err(|e| format!("{}", e))?;
-
+    let file = OpenOptions::new().write(true).create(true).open("data/premade_creator.json");
+    let file = file.map_err(|e| e.to_string())?;
+    
     let config = CONFIG.read().expect("couldn't lock CONFIG for writing");
     to_writer_pretty(file, &*config).map_err(|e| format!("{}", e))
 }
