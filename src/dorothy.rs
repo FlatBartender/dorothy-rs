@@ -1,6 +1,6 @@
-use serenity::prelude::*;
-use serenity::model::prelude::*;
 use serenity::framework::StandardFramework;
+use serenity::model::prelude::*;
+use serenity::prelude::*;
 
 pub trait Module {
     fn register(framework: StandardFramework) -> StandardFramework;

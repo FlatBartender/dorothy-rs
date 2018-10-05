@@ -1,14 +1,14 @@
 use cron;
 
 use serenity::builder::*;
-use serenity::prelude::*;
-use serenity::model::prelude::*;
 use serenity::framework::standard::*;
-use serenity::utils::*;
 use serenity::model::misc::Mentionable;
+use serenity::model::prelude::*;
+use serenity::prelude::*;
+use serenity::utils::*;
 
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::RwLock;
 
 use super::Server;
@@ -40,7 +40,8 @@ lazy_static! {
 impl Command for GetCommand {
     fn options(&self) -> Arc<CommandOptions> {
         let mut options = CommandOptions::default();
-        options.desc = Some("Gets the configuration for this server if it's already loaded.".to_string());
+        options.desc =
+            Some("Gets the configuration for this server if it's already loaded.".to_string());
         options.help_available = true;
         options.max_args = Some(0);
 
@@ -57,20 +58,27 @@ impl Command for GetCommand {
         let server = match server {
             // Server config exists, put it in the INCOMPLETE_SERVERS map.
             Some(s) => s.clone(),
-            None    => return Err(CommandError("Couldn't find server in config file".to_string())),
+            None => {
+                return Err(CommandError(
+                    "Couldn't find server in config file".to_string(),
+                ))
+            }
         };
 
-        msg.channel_id.send_message(|m| m.embed(|_| display_server(&server)
-                                                .title("Server configuration loaded!")
-                                                .color(Colour::from_rgb(120, 17, 176))
-        )
-        )?;
+        msg.channel_id.send_message(|m| {
+            m.embed(|_| {
+                display_server(&server)
+                    .title("Server configuration loaded!")
+                    .color(Colour::from_rgb(120, 17, 176))
+            })
+        })?;
 
-        let mut incomplete_servers = INCOMPLETE_SERVERS.write().expect("couldn't lock INCOMPLETE_SERVERS for writing");
+        let mut incomplete_servers = INCOMPLETE_SERVERS
+            .write()
+            .expect("couldn't lock INCOMPLETE_SERVERS for writing");
         incomplete_servers.insert(server_id, server);
 
         Ok(())
-
     }
 }
 
@@ -94,7 +102,9 @@ impl Command for CreateCommand {
         let mut server = Server::default();
 
         if args.remaining() < 3 {
-            return Err(CommandError("The Create command takes 3 arguments".to_string()));
+            return Err(CommandError(
+                "The Create command takes 3 arguments".to_string(),
+            ));
         }
 
         server.channel_id = ChannelId(args.single()?);
@@ -103,26 +113,29 @@ impl Command for CreateCommand {
         // once this part of the module works
         // Get the two strings that we will use in the server
         let start: String = args.single_quoted()?;
-        let   end: String = args.single_quoted()?;
+        let end: String = args.single_quoted()?;
         // Check if they are valid syntax
         let _t: cron::Schedule = start.parse()?;
-        let _t: cron::Schedule =   end.parse()?;
+        let _t: cron::Schedule = end.parse()?;
 
         // If we're here then everything is valid.
         server.start = start;
-        server.end   = end;
+        server.end = end;
 
-        msg.channel_id.send_message(|m| m.embed(|_| display_server(&server)
-                                                .title("New configuration created!")
-                                                .color(Colour::from_rgb(120, 17, 176))
-        )
-        )?;
+        msg.channel_id.send_message(|m| {
+            m.embed(|_| {
+                display_server(&server)
+                    .title("New configuration created!")
+                    .color(Colour::from_rgb(120, 17, 176))
+            })
+        })?;
 
-        let mut incomplete_servers = INCOMPLETE_SERVERS.write().expect("couldn't lock INCOMPLETE_SERVERS for writing");
+        let mut incomplete_servers = INCOMPLETE_SERVERS
+            .write()
+            .expect("couldn't lock INCOMPLETE_SERVERS for writing");
         incomplete_servers.insert(server_id, server);
 
         Ok(())
-
     }
 }
 
@@ -146,9 +159,10 @@ impl Command for SetCommand {
         let server_id = msg.guild_id.unwrap();
 
         if args.remaining() < 3 {
-            return Err(CommandError("The Create command takes 3 arguments".to_string()));
+            return Err(CommandError(
+                "The Create command takes 3 arguments".to_string(),
+            ));
         }
-
 
         let channel_id = ChannelId(args.single()?);
 
@@ -156,33 +170,38 @@ impl Command for SetCommand {
         // once this part of the module works
         // Get the two strings that we will use in the server
         let start: String = args.single_quoted()?;
-        let   end: String = args.single_quoted()?;
+        let end: String = args.single_quoted()?;
         // Check if they are valid syntax
         let _t: cron::Schedule = start.parse()?;
-        let _t: cron::Schedule =   end.parse()?;
+        let _t: cron::Schedule = end.parse()?;
 
         // If we're here then everything is valid.
         {
-            let mut incomplete_servers = INCOMPLETE_SERVERS.write().expect("couldn't lock INCOMPLETE_SERVERS for writing");
+            let mut incomplete_servers = INCOMPLETE_SERVERS
+                .write()
+                .expect("couldn't lock INCOMPLETE_SERVERS for writing");
             let server = incomplete_servers.entry(server_id).or_default();
             server.channel_id = channel_id;
             server.start = start;
-            server.end   = end;
+            server.end = end;
         }
 
         // We're relocking the INCOMPLETE_SERVERS here to keep the writing section as small as
         // possible.
-        let incomplete_servers = INCOMPLETE_SERVERS.read().expect("couldn't lock INCOMPLETE_SERVERS for reading");
+        let incomplete_servers = INCOMPLETE_SERVERS
+            .read()
+            .expect("couldn't lock INCOMPLETE_SERVERS for reading");
         // Once we get here there *is* a server in the map so it's safe to unwrap.
         let server = incomplete_servers.get(&server_id).unwrap();
-        msg.channel_id.send_message(|m| m.embed(|_| display_server(&server)
-                                                .title("Server configuration modified (don't forget to commit it)")
-                                                .color(Colour::from_rgb(120, 17, 176))
-        )
-        )?;
+        msg.channel_id.send_message(|m| {
+            m.embed(|_| {
+                display_server(&server)
+                    .title("Server configuration modified (don't forget to commit it)")
+                    .color(Colour::from_rgb(120, 17, 176))
+            })
+        })?;
 
         Ok(())
-
     }
 }
 
@@ -204,30 +223,39 @@ impl Command for AddRolesCommand {
         // Unwrap is safe here because this command is only available in servers.
         let server_id = msg.guild_id.unwrap();
 
-        let mut roles = args.iter::<u64>().filter_map(|a| a.ok()).map(RoleId).collect();
+        let mut roles = args
+            .iter::<u64>()
+            .filter_map(|a| a.ok())
+            .map(RoleId)
+            .collect();
 
         {
-            let mut incomplete_servers = INCOMPLETE_SERVERS.write().expect("couldn't lock INCOMPLETE_SERVERS for writing");
+            let mut incomplete_servers = INCOMPLETE_SERVERS
+                .write()
+                .expect("couldn't lock INCOMPLETE_SERVERS for writing");
             let server = incomplete_servers.entry(server_id).or_default();
             match server.role_ids {
                 None => server.role_ids = Some(roles),
-                Some(ref mut s) => s.append(&mut roles)
+                Some(ref mut s) => s.append(&mut roles),
             }
         }
 
         // We're relocking the INCOMPLETE_SERVERS here to keep the writing section as small as
         // possible.
-        let incomplete_servers = INCOMPLETE_SERVERS.read().expect("couldn't lock INCOMPLETE_SERVERS for reading");
+        let incomplete_servers = INCOMPLETE_SERVERS
+            .read()
+            .expect("couldn't lock INCOMPLETE_SERVERS for reading");
         // Once we get here there *is* a server in the map so it's safe to unwrap.
         let server = incomplete_servers.get(&server_id).unwrap();
-        msg.channel_id.send_message(|m| m.embed(|_| display_server(&server)
-                                                .title("Roles set (don't forget to commit)")
-                                                .color(Colour::from_rgb(120, 17, 176))
-        )
-        )?;
+        msg.channel_id.send_message(|m| {
+            m.embed(|_| {
+                display_server(&server)
+                    .title("Roles set (don't forget to commit)")
+                    .color(Colour::from_rgb(120, 17, 176))
+            })
+        })?;
 
         Ok(())
-
     }
 }
 
@@ -249,11 +277,19 @@ impl Command for AddGameCommand {
         // Unwrap is safe here because this command is only available in servers.
         let server_id = msg.guild_id.unwrap();
 
-        let name        = args.single_quoted()?;
-        let emoji       = args.single()?;
-        let channel_id  = args.single()?;
-        let role_ids: Vec<RoleId> = args.iter::<u64>().filter_map(|a| a.ok()).map(RoleId).collect();
-        let role_ids = if role_ids.is_empty() { None } else { Some(role_ids) };
+        let name = args.single_quoted()?;
+        let emoji = args.single()?;
+        let channel_id = args.single()?;
+        let role_ids: Vec<RoleId> = args
+            .iter::<u64>()
+            .filter_map(|a| a.ok())
+            .map(RoleId)
+            .collect();
+        let role_ids = if role_ids.is_empty() {
+            None
+        } else {
+            Some(role_ids)
+        };
 
         let game = super::GameInfo {
             name,
@@ -263,24 +299,29 @@ impl Command for AddGameCommand {
         };
 
         {
-            let mut incomplete_servers = INCOMPLETE_SERVERS.write().expect("couldn't lock INCOMPLETE_SERVERS for writing");
+            let mut incomplete_servers = INCOMPLETE_SERVERS
+                .write()
+                .expect("couldn't lock INCOMPLETE_SERVERS for writing");
             let server = incomplete_servers.entry(server_id).or_default();
             server.games.push(game);
         }
 
         // We're relocking the INCOMPLETE_SERVERS here to keep the writing section as small as
         // possible.
-        let incomplete_servers = INCOMPLETE_SERVERS.read().expect("couldn't lock INCOMPLETE_SERVERS for reading");
+        let incomplete_servers = INCOMPLETE_SERVERS
+            .read()
+            .expect("couldn't lock INCOMPLETE_SERVERS for reading");
         // Once we get here there *is* a server in the map so it's safe to unwrap.
         let server = incomplete_servers.get(&server_id).unwrap();
-        msg.channel_id.send_message(|m| m.embed(|_| display_server(&server)
-                                                .title("Game added (don't forget to commit)")
-                                                .color(Colour::from_rgb(120, 17, 176))
-        )
-        )?;
+        msg.channel_id.send_message(|m| {
+            m.embed(|_| {
+                display_server(&server)
+                    .title("Game added (don't forget to commit)")
+                    .color(Colour::from_rgb(120, 17, 176))
+            })
+        })?;
 
         Ok(())
-
     }
 }
 
@@ -297,9 +338,13 @@ impl Command for CommitCommand {
     fn execute(&self, _ctx: &mut Context, msg: &Message, _args: Args) -> Result<(), CommandError> {
         // Unwrap is safe here because this command is only available in servers.
         let server_id = msg.guild_id.unwrap();
-        let incomplete_servers = INCOMPLETE_SERVERS.read().expect("couldn't lock INCOMPLETE_SERVERS for reading");
+        let incomplete_servers = INCOMPLETE_SERVERS
+            .read()
+            .expect("couldn't lock INCOMPLETE_SERVERS for reading");
         // Once we get here there *is* a server in the map so it's safe to unwrap.
-        let server = incomplete_servers.get(&server_id).ok_or("Server config not found in INCOMPLETE_SERVERS")?;
+        let server = incomplete_servers
+            .get(&server_id)
+            .ok_or("Server config not found in INCOMPLETE_SERVERS")?;
 
         {
             let mut config = CONFIG.write().expect("couldn't lock CONFIG for writing");
@@ -308,9 +353,9 @@ impl Command for CommitCommand {
 
         super::save_config()?;
 
-        msg.channel_id.send_message(|m| m.content("Configuration saved and written to disk."))?;
+        msg.channel_id
+            .send_message(|m| m.content("Configuration saved and written to disk."))?;
         Ok(())
-
     }
 }
 
@@ -322,17 +367,37 @@ impl Command for CommitCommand {
 fn display_server(server: &Server) -> CreateEmbed {
     CreateEmbed::default()
         .field("Channel", server.channel_id.mention(), false)
-        .field("Event times", format!("Starts: {}\n  Ends: {}\n", &server.start, &server.end), true)
-
-        .field("Roles", match server.role_ids {
-               None => "None".to_string(),
-               Some(ref roles) => roles.iter().map(|r| r.mention()).collect::<Vec<String>>().join(", "),
-        }, false)
-        .fields(server.games.iter().map(|g| {
-            (format!("{} {}", g.emoji, g.name), 
-             format!("In {}, {}", g.channel_id.mention(), match g.role_ids {
-                 None => "None".to_string(),
-                 Some(ref roles) => roles.iter().map(|r| r.mention()).collect::<Vec<String>>().join(", "),
-             }), false)
+        .field(
+            "Event times",
+            format!("Starts: {}\n  Ends: {}\n", &server.start, &server.end),
+            true,
+        ).field(
+            "Roles",
+            match server.role_ids {
+                None => "None".to_string(),
+                Some(ref roles) => roles
+                    .iter()
+                    .map(|r| r.mention())
+                    .collect::<Vec<String>>()
+                    .join(", "),
+            },
+            false,
+        ).fields(server.games.iter().map(|g| {
+            (
+                format!("{} {}", g.emoji, g.name),
+                format!(
+                    "In {}, {}",
+                    g.channel_id.mention(),
+                    match g.role_ids {
+                        None => "None".to_string(),
+                        Some(ref roles) => roles
+                            .iter()
+                            .map(|r| r.mention())
+                            .collect::<Vec<String>>()
+                            .join(", "),
+                    }
+                ),
+                false,
+            )
         }))
 }
