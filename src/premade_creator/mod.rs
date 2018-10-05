@@ -75,23 +75,31 @@ lazy_static! {
     };
 
     static ref CONFIG: RwLock<HashMap<GuildId, Server>> = {
-        // @TUNE Same here, structs aren't that expensive.
-        let file = File::open("data/premade_creator.json");
-        if file.is_err() {
-            return RwLock::new(HashMap::with_capacity(500));
-        }
-        let file = file.unwrap();
-        RwLock::new(from_reader(file).unwrap_or_else(|e| {
-            warn!("couldn't deserialize premade_creator config: {:?}", e);
-            HashMap::with_capacity(500)
-        }))
+        RwLock::new(initialize_config())
     };
 }
 
 static mut SCHED_CHANNEL_TX: Option<Sender<()>> = None;
 
-fn rehash(_: &mut Context, _: &Message, _: Args) -> Result<(), CommandError> {
-    lazy_static::initialize(&CONFIG);
+fn initialize_config() -> HashMap<GuildId, Server> {
+    // @TUNE number of reserved spaces in struct
+    let file = File::open("data/premade_creator.json");
+    if file.is_err() {
+        return HashMap::with_capacity(500);
+    }
+    let file = file.unwrap();
+    let config = from_reader(file).unwrap_or_else(|e| {
+        warn!("couldn't deserialize premade_creator config: {:?}", e);
+        HashMap::with_capacity(500)
+    });
+    info!("config successfully loaded");
+    config
+}
+
+fn rehash(_: &mut Context, msg: &Message, _: Args) -> Result<(), CommandError> {
+    let mut config = CONFIG.write().expect("couldn't lock config for writing");
+    *config = initialize_config();
+
     unsafe {
         if let Some(ref s) = SCHED_CHANNEL_TX {
             // The other end NEEDS to be connected to work correctly. We can unwrap since it should
@@ -205,7 +213,8 @@ fn process_start(server_id: GuildId) {
     // Yeah I realize I could use the r#""# notation but this is way more readable imo.
     let embed_description = vec![
         "Today, these following games are available!".to_string(),
-        "React with the corresponding emoji to participate!\n".to_string(),
+        "React with the corresponding emoji to say you're available!".to_string(),
+        "I will send messages with all the participants in their respective games' channels.\n".to_string(),
     ].join("\n");
 
     let games = &server.games;
