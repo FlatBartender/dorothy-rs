@@ -79,7 +79,7 @@ fn main() {
     modules.push(Box::new(&PremadeCreator::register));
     modules.push(Box::new(&Misc::register));
 
-    for register in modules.iter_mut() {
+    for register in &mut modules {
         framework = register(framework);
     }
 

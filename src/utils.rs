@@ -27,14 +27,15 @@ pub fn fold_by_strlen(mut state: FoldStrlenState, item: String) -> FoldStrlenSta
         return Err("A string is too long.".to_string());
     }
 
-    let mut vector = if state.current_character_count + item.len() > state.partition_size {
+    let mut vector = if state.current_character_count + item.len() > state.partition_size && !state.strings.is_empty() {
         // Need to allocate a new vector to store the next lines.
         state.current_character_count = 0;
         Vec::new()
     } else {
         // Get the last vector, or an empty one if no work has been done prior.
         // Unwrapping here should be safe because all the paths give a Vec.
-        state.strings.pop().or(Some(Vec::new())).unwrap()
+        // We also ensured that the state is not empty.
+        state.strings.pop().unwrap()
     };
 
     state.current_character_count += item.len();
