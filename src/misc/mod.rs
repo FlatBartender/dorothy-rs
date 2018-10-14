@@ -18,7 +18,33 @@ impl Module for Misc {
         framework.group("Misc", |g| {
             g.desc("Miscellaneous commands")
                 .cmd("id", MentionIdsCommand::default())
+                .cmd("say", SayCommand::default())
         })
+    }
+}
+
+#[derive(Default)]
+struct SayCommand;
+
+impl Command for SayCommand {
+    fn options(&self) -> Arc<CommandOptions> {
+        let mut options = CommandOptions::default();
+        options.owners_only = true;
+        options.desc = Some("says a message in the channel".to_string());
+        options.usage = Some("<channel id> <message>".to_string());
+        options.min_args = Some(2);
+        options.help_available = true;
+
+        Arc::new(options)
+    }
+
+    fn execute(&self, _ctx: &mut Context, _msg: &Message, args: Args) -> Result<(), CommandError> {
+        let mut args = args;
+        let channel = args.single::<ChannelId>()?;
+
+        channel.send_message(|m| m.content(args.rest()))?;
+
+        Ok(())
     }
 }
 
