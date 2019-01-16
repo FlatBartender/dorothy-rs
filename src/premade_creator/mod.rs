@@ -179,14 +179,15 @@ impl Module for PremadeCreator {
 /// None.
 fn role_list_to_mentions(roles: &Option<Vec<RoleId>>) -> String {
     match roles {
-        // If there's no role configured, don't @ anyone
-        None => "".to_string(),
         // If there's any role configured, mention all of them
-        Some(ref ids) => ids
+        Some(ref ids) if !ids.is_empty() => ids
             .iter()
             .map(&RoleId::mention)
             .collect::<Vec<String>>()
             .join(", "),
+        Some(ref ids) if ids.is_empty() => "@everyone".to_string(),
+        // If there's no role configured, don't @ anyone
+        _ => "".to_string(),
     }
 }
 
