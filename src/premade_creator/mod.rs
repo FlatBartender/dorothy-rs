@@ -60,7 +60,8 @@ use std::sync::RwLock;
 use std::thread;
 use std::time::Duration;
 
-use dorothy::Module;
+use serde::{Serialize, Deserialize};
+
 use utils::*;
 use SETTINGS;
 
