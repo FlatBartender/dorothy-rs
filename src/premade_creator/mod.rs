@@ -50,6 +50,7 @@ use serenity::model::permissions::Permissions;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use serenity::utils::Colour;
+use serenity::framework::standard::macros::*;
 
 use serde_json::{from_reader, to_writer_pretty};
 
@@ -66,6 +67,12 @@ use utils::*;
 use SETTINGS;
 
 mod creator_command;
+
+use self::creator_command::{GET_COMMAND, COMMIT_COMMAND};
+
+#[group]
+#[commands(get, commit)]
+pub struct PremadeCreator;
 
 lazy_static! {
     static ref STATE: RwLock<HashMap<ChannelId, MessageId>> = {
@@ -97,7 +104,7 @@ fn initialize_config() -> HashMap<GuildId, Server> {
     config
 }
 
-fn rehash(_: &mut Context, msg: &Message, _: Args) -> Result<(), CommandError> {
+fn rehash(ctx: &mut Context, msg: &Message, _: Args) -> Result<(), CommandError> {
     let mut config = CONFIG.write().expect("couldn't lock config for writing");
     *config = initialize_config();
 
@@ -109,71 +116,66 @@ fn rehash(_: &mut Context, msg: &Message, _: Args) -> Result<(), CommandError> {
         }
     }
     
-    msg.channel_id.send_message(|m| m.content("Configuration successfully reloaded."))?;
+    msg.channel_id.say(&ctx.http, "Configuration successfully reloaded.")?;
 
     Ok(())
 }
 
-#[derive(Default)]
-pub struct PremadeCreator;
+pub fn init(ctx: &mut Context) {
+    let (sched_tx, sched_rx) = channel();
 
-impl Module for PremadeCreator {
-    fn register(framework: StandardFramework) -> StandardFramework {
-        let (sched_tx, sched_rx) = channel();
+    unsafe {
+        SCHED_CHANNEL_TX = Some(sched_tx);
+    }
 
-        unsafe {
-            SCHED_CHANNEL_TX = Some(sched_tx);
+    thread::spawn(move || loop {
+        let mut sched = JobScheduler::new();
+
+        {
+            let config = CONFIG.read().expect("couldn't lock config for reading");
+
+            for (server_id, server) in config.iter() {
+                let sid = *server_id;
+                sched.add(Job::new(
+                        server.start.parse().expect("bad start syntax"),
+                        move || process_start(&ctx.http, sid),
+                ));
+                sched.add(Job::new(
+                        server.end.parse().expect("bad end syntax"),
+                        move || process_end(&ctx.http, sid),
+                ));
+            }
         }
 
-        thread::spawn(move || loop {
-            let mut sched = JobScheduler::new();
+        while sched_rx.try_recv().is_err() {
+            sched.tick();
+            let tick_size = {
+                let settings = SETTINGS.read().expect("couldn't lock settings for reading");
+                Duration::from_secs(
+                    settings
+                    .get::<u64>("premade-creator.tick")
+                    .expect("couldn't find tick length"),
+                )
+            };
+            thread::sleep(tick_size);
+        }
+    });
 
-            {
-                let config = CONFIG.read().expect("couldn't lock config for reading");
-
-                for (server_id, server) in config.iter() {
-                    let sid = *server_id;
-                    sched.add(Job::new(
-                        server.start.parse().expect("bad start syntax"),
-                        move || process_start(sid),
-                    ));
-                    sched.add(Job::new(
-                        server.end.parse().expect("bad end syntax"),
-                        move || process_end(sid),
-                    ));
-                }
-            }
-
-            while sched_rx.try_recv().is_err() {
-                sched.tick();
-                let tick_size = {
-                    let settings = SETTINGS.read().expect("couldn't lock settings for reading");
-                    Duration::from_secs(
-                        settings
-                            .get::<u64>("premade-creator.tick")
-                            .expect("couldn't find tick length"),
-                    )
-                };
-                thread::sleep(tick_size);
-            }
-        });
-
-        framework.group("Premade Creator", |g| {
-            g.desc("Commands to manipulate the Premade Creator module")
-                .required_permissions(Permissions::MANAGE_GUILD)
-                .cmd("pmconfig get", creator_command::GetCommand::default())
-                .cmd("pmconfig create", creator_command::CreateCommand::default())
-                .cmd("pmconfig set", creator_command::SetCommand::default())
-                .cmd(
-                    "pmconfig add roles",
-                    creator_command::AddRolesCommand::default(),
-                ).cmd(
-                    "pmconfig add game",
-                    creator_command::AddGameCommand::default(),
-                ).cmd("pmconfig commit", creator_command::CommitCommand::default())
-                .command("pmrehash", |c| c.owners_only(true).exec(rehash))
-        })
-    }
+    //framework.group("Premade Creator", |g| {
+    //    g.desc("Commands to manipulate the Premade Creator module")
+    //        .required_permissions(Permissions::MANAGE_GUILD)
+    //        .cmd("pmconfig get", creator_command::GetCommand::default())
+    //        .cmd("pmconfig create", creator_command::CreateCommand::default())
+    //        .cmd("pmconfig set", creator_command::SetCommand::default())
+    //        .cmd(
+    //            "pmconfig add roles",
+    //            creator_command::AddRolesCommand::default(),
+    //        ).cmd(
+    //        "pmconfig add game",
+    //        creator_command::AddGameCommand::default(),
+    //        ).cmd("pmconfig commit", creator_command::CommitCommand::default())
+    //            .command("pmrehash", |c| c.owners_only(true).exec(rehash))
+    //})
 }
 
 /// Convenience function to turn an Option<Vec<RoleId>> into a string mentioning the roles, if not
@@ -195,7 +197,7 @@ fn role_list_to_mentions(roles: &Option<Vec<RoleId>>) -> String {
 /// Function called at the "start" event, which will go through all the servers in the list to @
 /// the proper roles proposing them a few games. Potential players need to react with the proper
 /// reactions.
-fn process_start(server_id: GuildId) {
+fn process_start(ctx: &mut Context, server_id: GuildId) {
     info!(
         "Starting the premade creation process in server {}...",
         server_id
@@ -253,7 +255,7 @@ fn process_start(server_id: GuildId) {
     let message = message.embed(|_| embed).reactions(reactions.into_iter());
 
     let message = message.content(role_list_to_mentions(&server.role_ids));
-    match server.channel_id.send_message(|_| message) {
+    match server.channel_id.send_message(&ctx.http, |_| message) {
         // Message successfully sent, keep the ID in memory
         Ok(msg) => {
             let mut state = STATE.write().expect("couldn't lock state for writing");
@@ -303,7 +305,7 @@ fn process_end(server_id: GuildId) {
     for g in games.iter() {
         let mentions = server
             .channel_id
-            .reaction_users(message_id, g.emoji.clone(), None, None)
+            .reaction_users(&ctx.http, message_id, g.emoji.clone(), None, None)
             .expect("couldn't get reactions");
         let mentions = mentions.iter().filter(|user| !user.bot);
         let mentions = mentions
@@ -330,8 +332,8 @@ fn process_end(server_id: GuildId) {
                     .map(|m| (format!("{} {} (cont)", g.emoji, g.name), m, false)),
             );
 
-        let result = g.channel_id.send_message(|m| {
-            let message = m.embed(|_| embed);
+        let result = g.channel_id.send_message(&ctx.http, |m| {
+            let message = m.embed(move |_| embed);
             message.content(role_list_to_mentions(&g.role_ids))
         });
         if let Err(err) = result {

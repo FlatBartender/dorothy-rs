@@ -14,19 +14,6 @@ use std::sync::RwLock;
 use super::Server;
 use super::CONFIG;
 
-#[derive(Default)]
-pub struct GetCommand;
-#[derive(Default)]
-pub struct CreateCommand;
-#[derive(Default)]
-pub struct SetCommand;
-#[derive(Default)]
-pub struct AddRolesCommand;
-#[derive(Default)]
-pub struct AddGameCommand;
-#[derive(Default)]
-pub struct CommitCommand;
-
 lazy_static! {
     static ref INCOMPLETE_SERVERS: RwLock<HashMap<GuildId, Server>> = {
         // @TUNE Change the number of reserved slots

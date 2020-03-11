@@ -72,6 +72,15 @@ pub fn dispatch_error_handler(ctx: &mut Context, msg: &Message, err: DispatchErr
     .expect("Fatal error");
 }
 
+pub fn normal_message(ctx: &mut Context, msg: &Message) {
+    info!("{} ({}) in {}: {}", msg.author.tag(), msg.author.id, msg.channel_id, msg.content);
+    if !msg.attachments.is_empty() {
+        for attachment in msg.attachments.iter() {
+            info!("\t{}", attachment.proxy_url);
+        }
+    }
+}
+
 #[help]
 pub fn embed_help(
     context: &mut Context,

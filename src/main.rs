@@ -10,6 +10,7 @@ extern crate cron;
 extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
+extern crate clap;
 
 use std::{collections::HashSet, iter::FromIterator, sync::RwLock};
 
@@ -19,9 +20,10 @@ pub mod dorothy;
 
 pub mod misc;
 pub mod utils;
-pub mod premade_creator;
+//pub mod premade_creator;
+pub mod admin;
 
-use dorothy::{command_error_logger, dispatch_error_handler, print_command_used, EMBED_HELP};
+use dorothy::{command_error_logger, dispatch_error_handler, print_command_used, normal_message, EMBED_HELP};
 
 lazy_static! {
     static ref SETTINGS: RwLock<config::Config> = { RwLock::new(config::Config::default()) };
@@ -62,8 +64,11 @@ fn main() {
             .before(print_command_used)
             .after(command_error_logger)
             .on_dispatch_error(dispatch_error_handler)
+            .normal_message(normal_message)
             .help(&EMBED_HELP)
-            .group(&misc::MISC_GROUP),
+            .group(&misc::MISC_GROUP)
+            .group(&admin::ADMIN_GROUP)
+            //.group(&premade_creator::PREMADECREATOR_GROUP)
     );
 
     client.start().expect("couldn't start bot");

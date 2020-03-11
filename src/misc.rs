@@ -9,6 +9,7 @@ use serenity::framework::standard::macros::{command, group};
 use utils::*;
 
 #[group]
+#[commands(say, id)]
 pub struct Misc;
 
 #[command]
